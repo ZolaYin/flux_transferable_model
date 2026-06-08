@@ -16,6 +16,3 @@ Not included:
 - CarbonBench data
 - ERA5 parquet files
 - HLS `.npz` patches
-- checkpoints/logs
-
-Current short summary: see `docs/experiment_summary_20260608.md`.
