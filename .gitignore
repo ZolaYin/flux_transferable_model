@@ -1,0 +1,19 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.log
+*.out
+*.err
+
+# Data and generated artifacts
+data/
+flux_data/
+checkpoints/
+runs/
+wandb/
+*.parquet
+*.npz
+*.zip
+*.tar
+*.tar.gz
+

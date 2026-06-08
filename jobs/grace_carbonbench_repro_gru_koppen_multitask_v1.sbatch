@@ -1,0 +1,67 @@
+#!/bin/bash
+# CarbonBench paper-style GRU baseline:
+#   Köppen global split, Minimal feature set, W-day windows with stride 15,
+#   multi-task GPP/RECO/NEE, QC/class-balanced loss, and NEE = RECO - GPP
+#   consistency penalty. Default W=30; override CARBONBENCH_SEQUENCE_LENGTH=365
+#   for the long-window ablation.
+# This is a single-seed pilot. The paper reports a 10-seed ensemble.
+#SBATCH --job-name=cb_repro_gru
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:a100:1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=128G
+#SBATCH --time=10:00:00
+#SBATCH --output=/scratch/user/%u/afmnet/logs/%x-%j.out
+#SBATCH --error=/scratch/user/%u/afmnet/logs/%x-%j.err
+
+set -euo pipefail
+
+module purge
+module load GCC/13.2.0 OpenMPI/4.1.6 PyTorch/2.7.0 CUDA/12.6.0
+source /scratch/user/$USER/afmnet/envs/afmnet-py311/bin/activate
+
+cd /scratch/user/$USER/afmnet/classification
+
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
+export NUMEXPR_MAX_THREADS="${SLURM_CPUS_PER_TASK}"
+export MPLBACKEND=Agg
+export PYTHONUNBUFFERED=1
+
+export CARBONBENCH_DATA_ROOT="${CARBONBENCH_DATA_ROOT:-/scratch/user/$USER/afmnet/flux_data/carbonbench}"
+export CARBONBENCH_SPLIT_FILE="${CARBONBENCH_SPLIT_FILE:-$CARBONBENCH_DATA_ROOT/split_global_koppen_seed56_70_10_20.csv}"
+export CARBONBENCH_IGBP_FILTER=all
+export CARBONBENCH_FEATURE_SET_NAME=minimal
+export CARBONBENCH_ERA5_FILE="${CARBONBENCH_ERA5_FILE:-$CARBONBENCH_DATA_ROOT/ERA5.parquet}"
+
+export CARBONBENCH_RESTRICT_TO_PATCH_MANIFEST=0
+export CARBONBENCH_PATCH_MANIFEST_FILE=""
+export CARBONBENCH_USE_IMAGE_BRANCH=0
+
+export CARBONBENCH_USE_SEQUENCE_BRANCH=1
+export CARBONBENCH_SEQUENCE_LENGTH="${CARBONBENCH_SEQUENCE_LENGTH:-30}"
+export CARBONBENCH_SEQUENCE_STRIDE=15
+export CARBONBENCH_SEQUENCE_INCLUDE_CURRENT=1
+export CARBONBENCH_SEQUENCE_ENCODER_TYPE=gru
+export CARBONBENCH_SEQUENCE_EMBEDDING_DIM=256
+export CARBONBENCH_MAMBA_D_MODEL=256
+export CARBONBENCH_MAMBA_LAYERS=2
+export CARBONBENCH_MODEL_DROPOUT=0.2
+
+export CARBONBENCH_TARGET_COLUMNS=GPP_NT_VUT_USTAR50,RECO_NT_VUT_USTAR50,NEE_VUT_USTAR50
+export CARBONBENCH_STANDARDIZE_TARGETS=1
+export CARBONBENCH_EVAL_QC_THRESHOLD=1.0
+export CARBONBENCH_USE_SAMPLE_WEIGHTS=1
+export CARBONBENCH_CRITERION=CarbonBenchFluxLoss
+export CARBONBENCH_FLUX_CONSTRAINT_WEIGHT=0.1
+export CARBONBENCH_PRIMARY_METRIC_NAME=site_r2_median_GPP_NT_VUT_USTAR50
+export CARBONBENCH_PRIMARY_METRIC_MODE=max
+
+export CARBONBENCH_EXPERIMENT_NAME="${CARBONBENCH_EXPERIMENT_NAME:-carbonbench_repro_koppen_gru_minimal_multitask_t${CARBONBENCH_SEQUENCE_LENGTH}_v1}"
+
+python -u train.py \
+  --dataset carbonbench_flux \
+  --batch_size "${BATCH_SIZE:-512}" \
+  --epochs "${EPOCHS:-60}" \
+  --lr "${LR:-0.0005}" \
+  --cam_samples 0
