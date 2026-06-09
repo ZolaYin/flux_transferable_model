@@ -87,7 +87,15 @@ def build_model_and_loaders(dataset_name: str):
     config_getter = getattr(config_module, f"get_{dataset_name.lower()}_from_scratch_config")
     cfg = config_getter()
 
-    dataloader_func = getattr(datasets, f"get_{dataset_name.lower()}_dataloaders")
+    dataloader_name = f"get_{dataset_name.lower()}_dataloaders"
+    if hasattr(datasets, dataloader_name):
+        dataloader_func = getattr(datasets, dataloader_name)
+    elif dataset_name.lower() == "carbonbench_flux_hiermoe":
+        # The hierarchical/FiLM/MoE model uses its own config/model class but
+        # shares the base CarbonBench flux dataset and dataloader.
+        dataloader_func = getattr(datasets, "get_carbonbench_flux_dataloaders")
+    else:
+        dataloader_func = getattr(datasets, dataloader_name)
     train_loader, val_loader, test_loader = dataloader_func(cfg)
 
     model_cfg = cfg["model"]
