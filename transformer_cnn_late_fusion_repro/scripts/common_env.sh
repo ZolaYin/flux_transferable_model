@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FINAL_MODEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export FINAL_MODEL_DIR
+
+export REPO_ROOT="${REPO_ROOT:-$(cd "${FINAL_MODEL_DIR}/.." && pwd)}"
+export PROJECT_ROOT="${PROJECT_ROOT:-/scratch/user/${USER}/carbonbench_project}"
+export CARBONBENCH_CHECKPOINT_DIR="${CARBONBENCH_CHECKPOINT_DIR:-${PROJECT_ROOT}/checkpoints_final}"
+export CARBONBENCH_DATA_ROOT="${CARBONBENCH_DATA_ROOT:-/scratch/user/${USER}/afmnet/flux_data/carbonbench}"
+export CARBONBENCH_SPLIT_FILE="${CARBONBENCH_SPLIT_FILE:-${CARBONBENCH_DATA_ROOT}/split_global_koppen_seed56_70_10_20.csv}"
+export CARBONBENCH_ERA5_FILE="${CARBONBENCH_ERA5_FILE:-${CARBONBENCH_DATA_ROOT}/ERA5.parquet}"
+export CARBONBENCH_DEFAULT_PATCH_MANIFEST_FILE="${CARBONBENCH_DATA_ROOT}/patch_manifest_global_all_igbp_hls_plus_landsat_missing_one_per_site_v1_downloaded.csv"
+export CARBONBENCH_PATCH_MANIFEST_FILE="${CARBONBENCH_PATCH_MANIFEST_FILE:-${CARBONBENCH_DEFAULT_PATCH_MANIFEST_FILE}}"
+
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export NUMEXPR_MAX_THREADS="${SLURM_CPUS_PER_TASK:-8}"
+export MPLBACKEND=Agg
+export PYTHONUNBUFFERED=1
+export PYTHONWARNINGS=ignore::FutureWarning
+export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
+
+require_file() {
+  local path="$1"
+  if [[ ! -f "${path}" ]]; then
+    echo "Missing required file: ${path}" >&2
+    exit 2
+  fi
+}
+
+require_data_files() {
+  require_file "${CARBONBENCH_DATA_ROOT}/target_fluxes.parquet"
+  require_file "${CARBONBENCH_DATA_ROOT}/feature_sets.json"
+  require_file "${CARBONBENCH_SPLIT_FILE}"
+  require_file "${CARBONBENCH_ERA5_FILE}"
+}
+
+set_common_carbonbench_env() {
+  export CARBONBENCH_IGBP_FILTER=all
+  export CARBONBENCH_FEATURE_SET_NAME=minimal
+  export CARBONBENCH_USE_SEQUENCE_BRANCH=1
+  export CARBONBENCH_SEQUENCE_LENGTH=30
+  export CARBONBENCH_SEQUENCE_INCLUDE_CURRENT=1
+  export CARBONBENCH_SEQUENCE_STRIDE="${CARBONBENCH_SEQUENCE_STRIDE:-1}"
+  export CARBONBENCH_SEQUENCE_ENCODER_TYPE=transformer
+  export CARBONBENCH_SEQUENCE_EMBEDDING_DIM=128
+  export CARBONBENCH_MODEL_DROPOUT=0.1
+  export CARBONBENCH_TRANSFORMER_NHEAD=4
+  export CARBONBENCH_TRANSFORMER_DIM_FEEDFORWARD=512
+  export CARBONBENCH_TARGET_COLUMNS=GPP_NT_VUT_USTAR50,RECO_NT_VUT_USTAR50,NEE_VUT_USTAR50
+  export CARBONBENCH_STANDARDIZE_TARGETS=1
+  export CARBONBENCH_EVAL_QC_THRESHOLD=1.0
+  export CARBONBENCH_USE_SAMPLE_WEIGHTS=1
+  export CARBONBENCH_CRITERION=CarbonBenchFluxLoss
+  export CARBONBENCH_FLUX_CONSTRAINT_WEIGHT=0.1
+  export CARBONBENCH_PRIMARY_METRIC_NAME=site_r2_median_GPP_NT_VUT_USTAR50
+  export CARBONBENCH_PRIMARY_METRIC_MODE=max
+}
+
+set_transformer_only_env() {
+  set_common_carbonbench_env
+  export CARBONBENCH_RESTRICT_TO_PATCH_MANIFEST=0
+  export CARBONBENCH_PATCH_MANIFEST_FILE=""
+  export CARBONBENCH_IMAGE_CONTEXT_MODE=none
+  export CARBONBENCH_USE_IMAGE_BRANCH=0
+  export CARBONBENCH_INCLUDE_PATCH_FIELDS=0
+  export CARBONBENCH_EXPERIMENT_NAME="${E_EXPERIMENT_NAME:-final_transformer_noimage_t30}"
+}
+
+set_transformer_cnn_env() {
+  set_common_carbonbench_env
+  export CARBONBENCH_PATCH_MANIFEST_FILE="${CARBONBENCH_PATCH_MANIFEST_FILE:-${CARBONBENCH_DEFAULT_PATCH_MANIFEST_FILE}}"
+  require_file "${CARBONBENCH_PATCH_MANIFEST_FILE}"
+  export CARBONBENCH_RESTRICT_TO_PATCH_MANIFEST=1
+  export CARBONBENCH_IMAGE_CONTEXT_MODE=site_pool
+  export CARBONBENCH_IMAGE_CONTEXT_MAX_PATCHES="${CARBONBENCH_IMAGE_CONTEXT_MAX_PATCHES:-8}"
+  export CARBONBENCH_USE_IMAGE_BRANCH=1
+  export CARBONBENCH_INCLUDE_PATCH_FIELDS=1
+  export CARBONBENCH_IMAGE_ENCODER_TYPE=resnet18
+  export CARBONBENCH_IMAGE_RESNET_VARIANT=resnet18
+  export CARBONBENCH_IMAGE_RESNET_PRETRAINED=0
+  export CARBONBENCH_IMAGE_BRANCH_TRAINABLE=1
+  export CARBONBENCH_FUSION_MODE=concat
+  export CARBONBENCH_EXPERIMENT_NAME="${I_EXPERIMENT_NAME:-final_transformer_cnn_site_pool_k8_fromscratch}"
+}
+
+find_latest_file() {
+  local root="$1"
+  local pattern="$2"
+  if [[ ! -d "${root}" ]]; then
+    return 0
+  fi
+  find "${root}" -path "${pattern}" -type f | sort | tail -n 1
+}
+
+print_context() {
+  echo "REPO_ROOT=${REPO_ROOT}"
+  echo "FINAL_MODEL_DIR=${FINAL_MODEL_DIR}"
+  echo "CARBONBENCH_DATA_ROOT=${CARBONBENCH_DATA_ROOT}"
+  echo "CARBONBENCH_SPLIT_FILE=${CARBONBENCH_SPLIT_FILE}"
+  echo "CARBONBENCH_CHECKPOINT_DIR=${CARBONBENCH_CHECKPOINT_DIR}"
+}
