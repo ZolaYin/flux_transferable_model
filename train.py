@@ -155,6 +155,8 @@ def train_one_epoch(model, train_loader, optimizer, criterion, scaler, cfg, devi
 
     losses, main_losses, aux_losses = AverageMeter(), AverageMeter(), AverageMeter()
     batch_time, data_time = AverageMeter(), AverageMeter()
+    accumulation_steps = max(1, int(cfg['training'].get('gradient_accumulation_steps', 1)))
+    num_batches = len(train_loader)
 
     progress_bar = tqdm(
         train_loader,
@@ -165,6 +167,7 @@ def train_one_epoch(model, train_loader, optimizer, criterion, scaler, cfg, devi
     )
 
     end = time.time()
+    optimizer.zero_grad(set_to_none=True)
     for batch_idx, (inputs, targets) in enumerate(progress_bar):
         data_time.update(time.time() - end)
 
@@ -173,26 +176,34 @@ def train_one_epoch(model, train_loader, optimizer, criterion, scaler, cfg, devi
         if is_regression_task(cfg):
             targets = targets.to(dtype=torch.float32)
 
-        optimizer.zero_grad(set_to_none=True)
-
         with torch.amp.autocast(device_type=device.type, dtype=dtype, enabled=(scaler is not None)):
             predictions, aux_loss = unpack_model_output(model(inputs), device, torch.float32)
             if is_regression_task(cfg) and predictions.ndim > 1 and predictions.shape[-1] == 1:
                 predictions = predictions.squeeze(-1)
             main_loss, total_loss = compute_training_loss(predictions, targets, inputs, criterion, cfg, aux_loss)
 
+        window_start = (batch_idx // accumulation_steps) * accumulation_steps
+        window_end = min(window_start + accumulation_steps, num_batches)
+        current_accumulation_steps = max(1, window_end - window_start)
+        scaled_loss = total_loss / current_accumulation_steps
+        should_step = ((batch_idx + 1) % accumulation_steps == 0) or ((batch_idx + 1) == num_batches)
+
         if scaler:
-            scaler.scale(total_loss).backward()
-            if cfg['training']['clip_grad_norm']:
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg['training']['clip_grad_norm'])
-            scaler.step(optimizer)
-            scaler.update()
+            scaler.scale(scaled_loss).backward()
+            if should_step:
+                if cfg['training']['clip_grad_norm']:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), cfg['training']['clip_grad_norm'])
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
         else:
-            total_loss.backward()
-            if cfg['training']['clip_grad_norm']:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg['training']['clip_grad_norm'])
-            optimizer.step()
+            scaled_loss.backward()
+            if should_step:
+                if cfg['training']['clip_grad_norm']:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), cfg['training']['clip_grad_norm'])
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
 
         # Record metrics
         batch_size = targets.size(0)
@@ -207,7 +218,8 @@ def train_one_epoch(model, train_loader, optimizer, criterion, scaler, cfg, devi
             'loss': f"{losses.avg:.4f}",
             'main': f"{main_losses.avg:.4f}",
             'aux': f"{aux_losses.avg:.4f}",
-            'lr': f"{optimizer.param_groups[0]['lr']:.2e}"
+            'lr': f"{optimizer.param_groups[0]['lr']:.2e}",
+            'accum': accumulation_steps,
         })
 
     return losses.avg, main_losses.avg, aux_losses.avg
@@ -346,6 +358,8 @@ def main(args):
     # --- 2. Override Config with Command-Line Arguments ---
     if args.lr: cfg['training']['optimizer_params']['lr'] = args.lr
     if args.batch_size: cfg['data']['batch_size'] = args.batch_size
+    if args.gradient_accumulation_steps:
+        cfg['training']['gradient_accumulation_steps'] = args.gradient_accumulation_steps
     if args.epochs:
         cfg['training']['epochs'] = args.epochs
         if 'scheduler_params' in cfg['training'] and 'T_max' in cfg['training']['scheduler_params']:
@@ -381,7 +395,13 @@ def main(args):
         logger.warning("AMP requested but CUDA is not available. Disabling AMP.")
         use_amp = False
 
-    logger.info(f"Using device: {device} | Data type: {dtype_str} | AMP enabled: {use_amp}")
+    accumulation_steps = max(1, int(train_cfg.get('gradient_accumulation_steps', 1)))
+    effective_batch_size = int(cfg['data'].get('batch_size', 1)) * accumulation_steps
+    logger.info(
+        f"Using device: {device} | Data type: {dtype_str} | AMP enabled: {use_amp} | "
+        f"Micro batch: {cfg['data'].get('batch_size')} | Gradient accumulation: {accumulation_steps} | "
+        f"Effective batch: {effective_batch_size}"
+    )
 
     # --- 5. Load Data ---
     data_cfg = cfg['data']
@@ -564,6 +584,8 @@ if __name__ == '__main__':
                         help="Name of the dataset to use.")
     parser.add_argument('--lr', type=float, default=None, help="Override learning rate from config.")
     parser.add_argument('--batch_size', type=int, default=None, help="Override batch size from config.")
+    parser.add_argument('--gradient_accumulation_steps', type=int, default=None,
+                        help="Accumulate gradients for this many micro-batches before each optimizer step.")
     parser.add_argument('--epochs', type=int, default=None, help="Override number of epochs from config.")
     parser.add_argument('--resume', type=str, default=None, help="Path to a checkpoint to resume training from.")
     parser.add_argument('--cam_samples', type=int, default=10,

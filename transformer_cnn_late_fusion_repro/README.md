@@ -24,9 +24,12 @@ The historical result table in this README is exploratory. In that run, the
 Transformer-only baseline used batch size 256 and full daily rows, while the
 Transformer+image CNN candidate used batch size 16 on the image-manifest grid
 because of image-memory constraints. That is not a strictly fair optimizer/data
-comparison. The scripts now default both training jobs to batch size 16, and
-script 01 supports `CARBONBENCH_MATCH_IMAGE_GRID=1` to train the no-image
-Transformer on the exact same image-manifest sample grid as script 02.
+comparison. The scripts now default both training jobs to micro-batch size 16
+with `GRADIENT_ACCUMULATION_STEPS=16`, giving an effective batch size of 256
+without forcing the image model to fit 256 image-context samples in GPU memory.
+Script 01 supports `CARBONBENCH_MATCH_IMAGE_GRID=1` to train the no-image
+Transformer on the same image-covered tower set and full daily sample rows as
+script 02.
 
 Late fusion must be selected and trained using validation predictions only. The
 gate script exports test predictions because it needs them for the final
@@ -109,25 +112,27 @@ Useful overrides:
 ```bash
 CARBONBENCH_DATA_ROOT=/scratch/user/$USER/afmnet/flux_data/carbonbench \
 CARBONBENCH_CHECKPOINT_DIR=/scratch/user/$USER/carbonbench_project/checkpoints_final \
-EPOCHS=60 BATCH_SIZE=16 \
+EPOCHS=60 BATCH_SIZE=16 GRADIENT_ACCUMULATION_STEPS=16 \
 sbatch transformer_cnn_late_fusion_repro/scripts/01_train_transformer_noimage.sbatch
 ```
 
-For a fair-batch comparison, keep both base-model scripts at the same batch
-size and sample grid. The recommended fair image-branch ablation is:
+For a fair-batch comparison, keep both base-model scripts at the same
+micro-batch size, accumulation setting, and image-covered tower daily rows. The
+recommended fair image-branch ablation uses micro-batch 16 and effective batch
+256:
 
 ```bash
-CARBONBENCH_MATCH_IMAGE_GRID=1 BATCH_SIZE=16 \
+CARBONBENCH_MATCH_IMAGE_GRID=1 BATCH_SIZE=16 GRADIENT_ACCUMULATION_STEPS=16 \
 sbatch transformer_cnn_late_fusion_repro/scripts/01_train_transformer_noimage.sbatch
 
-BATCH_SIZE=16 \
+BATCH_SIZE=16 GRADIENT_ACCUMULATION_STEPS=16 \
 sbatch transformer_cnn_late_fusion_repro/scripts/02_train_transformer_cnn_fromscratch.sbatch
 ```
 
 For the image candidate:
 
 ```bash
-EPOCHS=60 BATCH_SIZE=16 \
+EPOCHS=60 BATCH_SIZE=16 GRADIENT_ACCUMULATION_STEPS=16 \
 sbatch transformer_cnn_late_fusion_repro/scripts/02_train_transformer_cnn_fromscratch.sbatch
 ```
 

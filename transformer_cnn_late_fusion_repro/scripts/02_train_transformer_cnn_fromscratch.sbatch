@@ -37,8 +37,19 @@ print_context
 echo "CARBONBENCH_PATCH_MANIFEST_FILE=${CARBONBENCH_PATCH_MANIFEST_FILE}"
 echo "CARBONBENCH_EXPERIMENT_NAME=${CARBONBENCH_EXPERIMENT_NAME}"
 echo "BATCH_SIZE=${BATCH_SIZE:-16}"
+echo "GRADIENT_ACCUMULATION_STEPS=${GRADIENT_ACCUMULATION_STEPS:-16}"
+echo "EFFECTIVE_BATCH_SIZE=$(( ${BATCH_SIZE:-16} * ${GRADIENT_ACCUMULATION_STEPS:-16} ))"
 echo "EPOCHS=${EPOCHS:-60}"
 echo "LR=${LR:-0.0005}"
+echo "AUTO_RESUME=${AUTO_RESUME:-0}"
+
+if [[ -z "${RESUME:-}" && "${AUTO_RESUME:-0}" == "1" ]]; then
+  latest_checkpoint="$(find_latest_file "${CARBONBENCH_CHECKPOINT_DIR}/${CARBONBENCH_EXPERIMENT_NAME}" "*/checkpoints/last_checkpoint.pth.tar" || true)"
+  if [[ -n "${latest_checkpoint}" ]]; then
+    export RESUME="${latest_checkpoint}"
+    echo "AUTO_RESUME selected RESUME=${RESUME}"
+  fi
+fi
 
 resume_args=()
 if [[ -n "${RESUME:-}" ]]; then
@@ -48,6 +59,7 @@ fi
 python -u train.py \
   --dataset carbonbench_flux \
   --batch_size "${BATCH_SIZE:-16}" \
+  --gradient_accumulation_steps "${GRADIENT_ACCUMULATION_STEPS:-16}" \
   --epochs "${EPOCHS:-60}" \
   --lr "${LR:-0.0005}" \
   "${resume_args[@]}" \

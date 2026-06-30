@@ -415,6 +415,50 @@ def _merge_patch_manifest(
     return merged
 
 
+def _valid_patch_manifest_sites(patch_manifest_path: Path, data_root: Path) -> set:
+    if not patch_manifest_path or not patch_manifest_path.exists():
+        return set()
+
+    patch_df = pd.read_csv(patch_manifest_path)
+    if patch_df.empty or 'site_id' not in patch_df.columns:
+        return set()
+
+    patch_df = patch_df.copy()
+    if 'patch_path' not in patch_df.columns:
+        return set(patch_df['site_id'].dropna().astype(str).tolist())
+
+    patch_df['patch_path'] = patch_df['patch_path'].fillna('').astype(str)
+
+    def resolve_patch_path(path_value: str) -> str:
+        if not path_value:
+            return ''
+        path = Path(path_value)
+        if path.is_absolute():
+            return str(path)
+        candidates = [
+            (data_root / path),
+            (data_root.parent / path),
+            (data_root.parent.parent / path),
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate.resolve())
+        return str((data_root.parent.parent / path).resolve())
+
+    patch_df['patch_path'] = patch_df['patch_path'].apply(resolve_patch_path)
+    patch_df['patch_exists'] = patch_df['patch_path'].apply(lambda p: bool(p) and Path(p).exists())
+    if 'download_status' in patch_df.columns:
+        valid_statuses = {'ok', 'exists'}
+        patch_df = patch_df[
+            patch_df['download_status'].fillna('').astype(str).str.lower().isin(valid_statuses)
+            & patch_df['patch_exists']
+        ].copy()
+    else:
+        patch_df = patch_df[patch_df['patch_exists']].copy()
+
+    return set(patch_df['site_id'].dropna().astype(str).tolist())
+
+
 def _resolve_igbp_filter(raw_filter) -> Optional[set]:
     if raw_filter is None:
         return CARBONBENCH_FOREST_CLASSES
@@ -479,10 +523,20 @@ def get_carbonbench_flux_dataloaders(config: dict):
     patch_manifest_path_str = data_cfg.get('patch_manifest_file')
     patch_manifest_path = Path(patch_manifest_path_str) if patch_manifest_path_str else None
     restrict_to_manifest_rows = bool(data_cfg.get('restrict_to_patch_manifest_rows', False))
+    restrict_to_manifest_sites = bool(data_cfg.get('restrict_to_patch_manifest_sites', False))
     image_context_mode = str(data_cfg.get('image_context_mode', 'exact') or 'exact')
     image_context_max_patches = int(data_cfg.get('image_context_max_patches', 1) or 1)
 
     split_df = pd.read_csv(split_path)
+    if restrict_to_manifest_sites:
+        if not patch_manifest_path:
+            raise ValueError("restrict_to_patch_manifest_sites requires patch_manifest_file.")
+        manifest_sites = _valid_patch_manifest_sites(patch_manifest_path, data_root)
+        if not manifest_sites:
+            raise ValueError(f"No valid patch sites found in manifest: {patch_manifest_path}")
+        split_df = split_df[split_df['site'].astype(str).isin(manifest_sites)].copy()
+        if split_df.empty:
+            raise ValueError("No split sites remain after patch-manifest site filtering.")
     selected_sites = sorted(split_df['site'].unique().tolist())
     split_role_by_site = dict(zip(split_df['site'], split_df['role']))
 

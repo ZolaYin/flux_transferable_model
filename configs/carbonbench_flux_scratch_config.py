@@ -12,6 +12,7 @@ def get_carbonbench_flux_from_scratch_config():
         os.path.join(data_root, 'patch_manifest_enf_C_to_D_hls_full_v1_downloaded.csv')
     )
     restrict_to_patch_manifest_rows = os.environ.get('CARBONBENCH_RESTRICT_TO_PATCH_MANIFEST', '0') == '1'
+    restrict_to_patch_manifest_sites = os.environ.get('CARBONBENCH_RESTRICT_TO_PATCH_MANIFEST_SITES', '0') == '1'
     use_image_branch = os.environ.get('CARBONBENCH_USE_IMAGE_BRANCH', '0') == '1'
     include_patch_fields = os.environ.get(
         'CARBONBENCH_INCLUDE_PATCH_FIELDS',
@@ -102,6 +103,7 @@ def get_carbonbench_flux_from_scratch_config():
         'patch_size_km': 2.0,
         'patch_manifest_file': patch_manifest_file,
         'restrict_to_patch_manifest_rows': restrict_to_patch_manifest_rows,
+        'restrict_to_patch_manifest_sites': restrict_to_patch_manifest_sites,
         'image_context_mode': image_context_mode,
         'image_context_max_patches': image_context_max_patches,
         'image_channels': 6,
@@ -179,7 +181,7 @@ def get_carbonbench_flux_from_scratch_config():
         'seed': model_seed,
         'eval_freq': 1,
         'print_freq': 50,
-        'checkpoint_dir': './checkpoints',
+        'checkpoint_dir': os.environ.get('CARBONBENCH_CHECKPOINT_DIR', './checkpoints'),
         'experiment_name': experiment_name,
         'max_recent_checkpoints_to_keep': 3,
         'primary_metric_name': os.environ.get('CARBONBENCH_PRIMARY_METRIC_NAME', 'rmse'),
