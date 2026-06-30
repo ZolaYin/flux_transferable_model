@@ -1,7 +1,7 @@
 # Transformer + Image CNN + Learned Late Fusion
 
-This folder is the minimal reproducible package for the final CarbonBench flux
-model line used in the project:
+This folder is the minimal reproducible package for the current CarbonBench
+flux model line used in the project:
 
 1. A no-image daily Transformer baseline.
 2. A from-scratch daily Transformer + static site-pool image CNN candidate.
@@ -12,6 +12,36 @@ It intentionally does not include the earlier exploratory A-I variants. The
 scripts here rely on the parent repository for `train.py`, `configs/`,
 `datasets/`, `models/`, and `utils/`, but keep the final job scripts and fusion
 tools together in one small directory.
+
+## Important Caveats
+
+This package is a compact reproduction wrapper, not a fully self-contained
+benchmark release. It must be run inside the parent repository version that
+contains this folder, with the external CarbonBench/imagery files described
+below.
+
+The historical result table in this README is exploratory. In that run, the
+Transformer-only baseline used batch size 256, while the Transformer+image CNN
+candidate used batch size 16 because of image-memory constraints. That is not a
+strictly fair optimizer comparison. The scripts now default both training jobs
+to batch size 16 for future fair-batch reruns. If you intentionally want to
+reproduce the historical run, set `BATCH_SIZE=256` only for script 01 and treat
+the resulting comparison as preliminary.
+
+Late fusion must be selected and trained using validation predictions only. The
+gate script exports test predictions because it needs them for the final
+evaluation, but `learned_late_fusion_gate.py` trains `train_gate(...)` only on
+the validation prediction files and applies the trained gate to test afterward.
+
+The image checkpoint choice must also be pre-registered from validation
+behavior. This package defaults to `J_I_NAME=I_model_best`. Using a specific
+epoch such as `I_epoch10` is acceptable only if that epoch was chosen before
+looking at test performance.
+
+The learned gate includes day-of-year sine/cosine features in addition to the
+two model predictions and their differences. Treat this as a modeling choice
+that needs ablation before claiming that the image branch alone caused the
+fusion gain.
 
 ## Model Definition
 
@@ -60,17 +90,16 @@ sbatch transformer_cnn_late_fusion_repro/scripts/02_train_transformer_cnn_fromsc
 ```
 
 After both checkpoints exist, run late fusion. The default image checkpoint is
-epoch 10 because it gave the strongest held-out fusion result in the current
-analysis.
+the validation-best image candidate checkpoint.
+
+```bash
+sbatch transformer_cnn_late_fusion_repro/scripts/03_export_predictions_and_train_gate.sbatch
+```
+
+You can explicitly use a pre-registered epoch checkpoint:
 
 ```bash
 J_I_NAME=I_epoch10 sbatch transformer_cnn_late_fusion_repro/scripts/03_export_predictions_and_train_gate.sbatch
-```
-
-You can also use the validation-best image checkpoint:
-
-```bash
-J_I_NAME=I_model_best sbatch transformer_cnn_late_fusion_repro/scripts/03_export_predictions_and_train_gate.sbatch
 ```
 
 Useful overrides:
@@ -78,11 +107,14 @@ Useful overrides:
 ```bash
 CARBONBENCH_DATA_ROOT=/scratch/user/$USER/afmnet/flux_data/carbonbench \
 CARBONBENCH_CHECKPOINT_DIR=/scratch/user/$USER/carbonbench_project/checkpoints_final \
-EPOCHS=60 BATCH_SIZE=256 \
+EPOCHS=60 BATCH_SIZE=16 \
 sbatch transformer_cnn_late_fusion_repro/scripts/01_train_transformer_noimage.sbatch
 ```
 
-For the image candidate, the default batch size is smaller:
+For a fair-batch comparison, keep both base-model scripts at the same batch
+size. The default is now `BATCH_SIZE=16` for both scripts.
+
+For the image candidate:
 
 ```bash
 EPOCHS=60 BATCH_SIZE=16 \
@@ -107,7 +139,8 @@ full-coverage setup, the held-out test set contained 113 evaluated towers.
 
 ## Current Reference Result
 
-On the current held-out test set, using the epoch-10 image candidate:
+Historical exploratory result on the held-out test set, using the epoch-10
+image candidate:
 
 | Model | GPP site R2 p25 | GPP site R2 median | GPP site R2 p75 |
 | --- | ---: | ---: | ---: |
@@ -116,6 +149,23 @@ On the current held-out test set, using the epoch-10 image candidate:
 | Learned late fusion | 0.329 | 0.664 | 0.823 |
 
 The learned late fusion improved 73 of 113 evaluated towers and degraded 40.
+The degraded group is large enough that this should be reported directly and
+diagnosed by tower type, climate, image coverage, and baseline predictability.
+
+Use `tools/paired_site_significance.py` to add a paired tower-level statistical
+check, for example:
+
+```bash
+python transformer_cnn_late_fusion_repro/tools/paired_site_significance.py \
+  --baseline analysis/final_late_fusion_I_model_best/learned_gate/test_per_site_transformer.csv \
+  --candidate analysis/final_late_fusion_I_model_best/learned_gate/test_per_site_learned_gate.csv \
+  --metric GPP_R2 \
+  --output analysis/final_late_fusion_I_model_best/paired_GPP_R2_significance.csv
+```
+
+This reports p25/median/p75 for both models, paired gain quantiles, a bootstrap
+95% confidence interval for the median gain, a sign-test p-value, and a
+Wilcoxon signed-rank p-value when scipy is installed.
 
 ## Outputs
 
@@ -137,3 +187,17 @@ Important files inside `learned_gate/`:
 - `test_gate_weight_summary_by_site.csv`
 - `learned_gate_summary.csv`
 
+Default gate hyperparameters are deliberately small/conservative:
+
+```text
+hidden_dim=16
+dropout=0.05
+epochs=500
+patience=50
+lr=0.001
+weight_decay=0.001
+```
+
+For a stronger claim, run ablations such as no day-of-year gate features,
+constant scalar fusion weight, and validation-only checkpoint selection before
+reporting the test-set result.

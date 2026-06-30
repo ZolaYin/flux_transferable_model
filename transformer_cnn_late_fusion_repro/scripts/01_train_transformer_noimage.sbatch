@@ -30,7 +30,7 @@ require_data_files
 set_transformer_only_env
 print_context
 echo "CARBONBENCH_EXPERIMENT_NAME=${CARBONBENCH_EXPERIMENT_NAME}"
-echo "BATCH_SIZE=${BATCH_SIZE:-256}"
+echo "BATCH_SIZE=${BATCH_SIZE:-16}"
 echo "EPOCHS=${EPOCHS:-60}"
 echo "LR=${LR:-0.0005}"
 
@@ -41,9 +41,8 @@ fi
 
 python -u train.py \
   --dataset carbonbench_flux \
-  --batch_size "${BATCH_SIZE:-256}" \
+  --batch_size "${BATCH_SIZE:-16}" \
   --epochs "${EPOCHS:-60}" \
   --lr "${LR:-0.0005}" \
   "${resume_args[@]}" \
   --cam_samples 0
-

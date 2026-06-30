@@ -1,10 +1,10 @@
 #!/bin/bash
 # Export validation/test predictions and train the prediction-level learned gate.
 # Default candidate checkpoint:
-#   J_I_NAME=I_epoch10
-# Other options:
 #   J_I_NAME=I_model_best
+# Other options:
 #   J_I_NAME=I_epoch20
+#   J_I_NAME=I_epoch10
 
 #SBATCH --job-name=cb_tf_cnn_gate
 #SBATCH --partition=gpu
@@ -32,7 +32,7 @@ cd "${REPO_ROOT}"
 require_data_files
 print_context
 
-J_I_NAME="${J_I_NAME:-I_epoch10}"
+J_I_NAME="${J_I_NAME:-I_model_best}"
 E_EXP_NAME="${E_EXPERIMENT_NAME:-final_transformer_noimage_t30}"
 I_EXP_NAME="${I_EXPERIMENT_NAME:-final_transformer_cnn_site_pool_k8_fromscratch}"
 E_ROOT="${CARBONBENCH_CHECKPOINT_DIR}/${E_EXP_NAME}"
@@ -131,8 +131,8 @@ python -u "${FINAL_MODEL_DIR}/tools/learned_late_fusion_gate.py" \
   --data-root "${CARBONBENCH_DATA_ROOT}" \
   --hidden-dim 16 \
   --dropout 0.05 \
-  --epochs 2000 \
-  --patience 250 \
+  --epochs "${GATE_EPOCHS:-500}" \
+  --patience "${GATE_PATIENCE:-50}" \
   --lr 0.001 \
   --weight-decay 0.001 \
   --w-max 1.0 \
@@ -175,4 +175,3 @@ PY
 
 echo "Outputs written under ${OUT_ROOT}"
 find "${OUT_ROOT}" -maxdepth 2 -type f | sort
-
