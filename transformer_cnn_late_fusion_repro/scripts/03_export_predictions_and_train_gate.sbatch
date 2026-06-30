@@ -25,7 +25,12 @@ if [[ -f "/scratch/user/${USER}/afmnet/envs/afmnet-py311/bin/activate" ]]; then
   source "/scratch/user/${USER}/afmnet/envs/afmnet-py311/bin/activate"
 fi
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common_env.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/common_env.sh" ]]; then
+  source "${SCRIPT_DIR}/common_env.sh"
+else
+  source "${SLURM_SUBMIT_DIR:-$(pwd)}/transformer_cnn_late_fusion_repro/scripts/common_env.sh"
+fi
 mkdir -p "/scratch/user/${USER}/afmnet/logs" "${CARBONBENCH_CHECKPOINT_DIR}"
 cd "${REPO_ROOT}"
 
