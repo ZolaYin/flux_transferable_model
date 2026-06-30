@@ -173,5 +173,11 @@ text = "\n".join(lines) + "\n"
 print(text)
 PY
 
+python -u "${FINAL_MODEL_DIR}/tools/paired_site_significance.py" \
+  --baseline "${GATE_OUT}/test_per_site_transformer.csv" \
+  --candidate "${GATE_OUT}/test_per_site_learned_gate.csv" \
+  --metric GPP_R2 \
+  --output "${OUT_ROOT}/paired_GPP_R2_significance.csv"
+
 echo "Outputs written under ${OUT_ROOT}"
 find "${OUT_ROOT}" -maxdepth 2 -type f | sort
