@@ -21,12 +21,12 @@ contains this folder, with the external CarbonBench/imagery files described
 below.
 
 The historical result table in this README is exploratory. In that run, the
-Transformer-only baseline used batch size 256, while the Transformer+image CNN
-candidate used batch size 16 because of image-memory constraints. That is not a
-strictly fair optimizer comparison. The scripts now default both training jobs
-to batch size 16 for future fair-batch reruns. If you intentionally want to
-reproduce the historical run, set `BATCH_SIZE=256` only for script 01 and treat
-the resulting comparison as preliminary.
+Transformer-only baseline used batch size 256 and full daily rows, while the
+Transformer+image CNN candidate used batch size 16 on the image-manifest grid
+because of image-memory constraints. That is not a strictly fair optimizer/data
+comparison. The scripts now default both training jobs to batch size 16, and
+script 01 supports `CARBONBENCH_MATCH_IMAGE_GRID=1` to train the no-image
+Transformer on the exact same image-manifest sample grid as script 02.
 
 Late fusion must be selected and trained using validation predictions only. The
 gate script exports test predictions because it needs them for the final
@@ -85,7 +85,9 @@ prediction falls back to the Transformer baseline.
 Submit these from the repository root on Grace.
 
 ```bash
+CARBONBENCH_MATCH_IMAGE_GRID=1 \
 sbatch transformer_cnn_late_fusion_repro/scripts/01_train_transformer_noimage.sbatch
+
 sbatch transformer_cnn_late_fusion_repro/scripts/02_train_transformer_cnn_fromscratch.sbatch
 ```
 
@@ -112,7 +114,15 @@ sbatch transformer_cnn_late_fusion_repro/scripts/01_train_transformer_noimage.sb
 ```
 
 For a fair-batch comparison, keep both base-model scripts at the same batch
-size. The default is now `BATCH_SIZE=16` for both scripts.
+size and sample grid. The recommended fair image-branch ablation is:
+
+```bash
+CARBONBENCH_MATCH_IMAGE_GRID=1 BATCH_SIZE=16 \
+sbatch transformer_cnn_late_fusion_repro/scripts/01_train_transformer_noimage.sbatch
+
+BATCH_SIZE=16 \
+sbatch transformer_cnn_late_fusion_repro/scripts/02_train_transformer_cnn_fromscratch.sbatch
+```
 
 For the image candidate:
 
