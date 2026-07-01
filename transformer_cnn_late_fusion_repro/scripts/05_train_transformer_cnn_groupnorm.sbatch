@@ -9,7 +9,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
-#SBATCH --time=24:00:00
+#SBATCH --time=4-00:00:00
 #SBATCH --output=/scratch/user/%u/afmnet/logs/%x-%j.out
 #SBATCH --error=/scratch/user/%u/afmnet/logs/%x-%j.err
 
