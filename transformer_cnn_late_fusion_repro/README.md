@@ -83,6 +83,22 @@ fused_prediction = transformer_prediction
 If the image candidate prediction is missing for a row, `w=0` and the fused
 prediction falls back to the Transformer baseline.
 
+### Image-only residual-gate ablation
+
+Script 04 is the stricter image contribution test. It freezes the Transformer
+checkpoint, exports train/validation/test Transformer predictions, then trains
+an image-only residual gate:
+
+```text
+fused_prediction = transformer_prediction
+                 + w(image_patch) * correction(image_patch)
+```
+
+The residual model sees image patch tensors only. It does not receive lat/lon,
+IGBP, Koppen, day-of-year/month, MODIS, ERA5, or Transformer hidden states.
+Training uses train-split residuals, validation selects the checkpoint, and the
+test split is evaluated only after selection.
+
 ## Grace Usage
 
 Submit these from the repository root on Grace.
@@ -105,6 +121,13 @@ You can explicitly use a pre-registered epoch checkpoint:
 
 ```bash
 J_I_NAME=I_epoch10 sbatch transformer_cnn_late_fusion_repro/scripts/03_export_predictions_and_train_gate.sbatch
+```
+
+To test whether static imagery adds marginal information beyond a frozen
+Transformer baseline, run script 04 after the Transformer checkpoint exists:
+
+```bash
+sbatch transformer_cnn_late_fusion_repro/scripts/04_train_image_residual_gate.sbatch
 ```
 
 Useful overrides:
