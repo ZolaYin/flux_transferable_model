@@ -24,6 +24,8 @@ def get_carbonbench_flux_from_scratch_config():
     image_encoder_type = os.environ.get('CARBONBENCH_IMAGE_ENCODER_TYPE', 'resnet18')
     image_resnet_variant = os.environ.get('CARBONBENCH_IMAGE_RESNET_VARIANT', 'resnet18')
     image_resnet_pretrained = os.environ.get('CARBONBENCH_IMAGE_RESNET_PRETRAINED', '0') == '1'
+    image_norm_layer = os.environ.get('CARBONBENCH_IMAGE_NORM_LAYER', 'batchnorm')
+    image_groupnorm_num_groups = int(os.environ.get('CARBONBENCH_IMAGE_GROUPNORM_NUM_GROUPS', '32'))
     image_branch_trainable = os.environ.get('CARBONBENCH_IMAGE_BRANCH_TRAINABLE', '1') == '1'
     image_context_mode = os.environ.get('CARBONBENCH_IMAGE_CONTEXT_MODE', 'exact')
     image_context_max_patches = int(os.environ.get('CARBONBENCH_IMAGE_CONTEXT_MAX_PATCHES', '1'))
@@ -121,6 +123,8 @@ def get_carbonbench_flux_from_scratch_config():
             else None
         ),
         'use_carbonbench_sample_weights': os.environ.get('CARBONBENCH_USE_SAMPLE_WEIGHTS', '0') == '1',
+        'use_group_balanced_sample_weights': os.environ.get('CARBONBENCH_USE_GROUP_BALANCED_WEIGHTS', '1') == '1',
+        'use_site_balanced_sample_weights': os.environ.get('CARBONBENCH_USE_SITE_BALANCED_WEIGHTS', '0') == '1',
         'max_train_rows': None,
         'max_val_rows': None,
         'max_test_rows': None,
@@ -143,6 +147,8 @@ def get_carbonbench_flux_from_scratch_config():
             'image_encoder_type': image_encoder_type,
             'image_resnet_variant': image_resnet_variant,
             'image_resnet_pretrained': image_resnet_pretrained,
+            'image_norm_layer': image_norm_layer,
+            'image_groupnorm_num_groups': image_groupnorm_num_groups,
             'image_branch_trainable': image_branch_trainable,
             'image_branch_hidden_dims': [32, 64, 128],
             'image_embedding_dim': 128,

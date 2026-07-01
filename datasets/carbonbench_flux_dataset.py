@@ -489,19 +489,31 @@ def _add_sample_weights(
     train_df: pd.DataFrame,
     other_frames: List[pd.DataFrame],
     qc_column: str = 'NEE_VUT_USTAR50_QC',
+    use_group_balancing: bool = True,
+    use_site_balancing: bool = False,
 ) -> Tuple[pd.DataFrame, List[pd.DataFrame]]:
     train_df = train_df.copy()
     other_frames = [frame.copy() for frame in other_frames]
     igbp_counts = train_df['IGBP'].fillna('UNK').value_counts()
     koppen_counts = train_df['koppen_main'].fillna('UNK').value_counts()
+    site_counts = train_df['site'].fillna('UNK').value_counts()
     igbp_weights = (len(train_df) / (len(igbp_counts) * igbp_counts)).to_dict()
     koppen_weights = (len(train_df) / (len(koppen_counts) * koppen_counts)).to_dict()
+    site_weights = (len(train_df) / (len(site_counts) * site_counts)).to_dict()
 
     def apply_weights(frame: pd.DataFrame) -> pd.DataFrame:
-        qc = frame[qc_column].fillna(1.0).astype(float).clip(lower=0.0, upper=1.0) if qc_column in frame.columns else 1.0
-        wi = frame['IGBP'].fillna('UNK').map(igbp_weights).fillna(1.0).astype(float)
-        wk = frame['koppen_main'].fillna('UNK').map(koppen_weights).fillna(1.0).astype(float)
-        weight = np.asarray(qc, dtype=np.float64) * wi.to_numpy(dtype=np.float64) * wk.to_numpy(dtype=np.float64)
+        if qc_column in frame.columns:
+            qc = frame[qc_column].fillna(1.0).astype(float).clip(lower=0.0, upper=1.0)
+            weight = qc.to_numpy(dtype=np.float64)
+        else:
+            weight = np.ones(len(frame), dtype=np.float64)
+        if use_group_balancing:
+            wi = frame['IGBP'].fillna('UNK').map(igbp_weights).fillna(1.0).astype(float)
+            wk = frame['koppen_main'].fillna('UNK').map(koppen_weights).fillna(1.0).astype(float)
+            weight = weight * wi.to_numpy(dtype=np.float64) * wk.to_numpy(dtype=np.float64)
+        if use_site_balancing:
+            ws = frame['site'].fillna('UNK').map(site_weights).fillna(1.0).astype(float)
+            weight = weight * ws.to_numpy(dtype=np.float64)
         finite = np.isfinite(weight)
         if finite.any() and weight[finite].mean() > 0:
             weight = weight / weight[finite].mean()
@@ -728,7 +740,12 @@ def get_carbonbench_flux_dataloaders(config: dict):
 
     sample_weight_column = None
     if bool(data_cfg.get('use_carbonbench_sample_weights', False)):
-        train_df, [val_df, test_df] = _add_sample_weights(train_df, [val_df, test_df])
+        train_df, [val_df, test_df] = _add_sample_weights(
+            train_df,
+            [val_df, test_df],
+            use_group_balancing=bool(data_cfg.get('use_group_balanced_sample_weights', True)),
+            use_site_balancing=bool(data_cfg.get('use_site_balanced_sample_weights', False)),
+        )
         sample_weight_column = 'sample_weight'
 
     if bool(data_cfg.get('standardize_targets', False)):

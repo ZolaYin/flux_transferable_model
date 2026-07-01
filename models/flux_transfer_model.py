@@ -60,6 +60,22 @@ def _make_mlp(input_dim: int, hidden_dims: List[int], dropout: float) -> nn.Sequ
     return nn.Sequential(*layers)
 
 
+def _largest_group_divisor(num_channels: int, max_groups: int) -> int:
+    for groups in range(min(max_groups, num_channels), 0, -1):
+        if num_channels % groups == 0:
+            return groups
+    return 1
+
+
+def _replace_batchnorm2d_with_groupnorm(module: nn.Module, max_groups: int = 32) -> None:
+    for name, child in module.named_children():
+        if isinstance(child, nn.BatchNorm2d):
+            groups = _largest_group_divisor(child.num_features, max_groups)
+            setattr(module, name, nn.GroupNorm(groups, child.num_features, eps=child.eps, affine=True))
+        else:
+            _replace_batchnorm2d_with_groupnorm(child, max_groups=max_groups)
+
+
 class ImagePatchCNN(nn.Module):
     def __init__(self, in_channels: int, conv_channels: List[int], out_dim: int, dropout: float):
         super().__init__()
@@ -98,6 +114,8 @@ class ResNetImageEncoder(nn.Module):
         out_dim: int,
         dropout: float,
         trainable: bool = True,
+        norm_layer: str = "batchnorm",
+        groupnorm_num_groups: int = 32,
     ):
         super().__init__()
         if not _TORCHVISION_IMPORTED or tv_models is None:
@@ -118,6 +136,11 @@ class ResNetImageEncoder(nn.Module):
 
         backbone.conv1 = self._build_input_conv(backbone.conv1, in_channels, pretrained)
         backbone.fc = nn.Identity()
+        norm_layer = str(norm_layer or "batchnorm").lower()
+        if norm_layer in {"groupnorm", "gn"}:
+            _replace_batchnorm2d_with_groupnorm(backbone, max_groups=int(groupnorm_num_groups))
+        elif norm_layer not in {"batchnorm", "bn"}:
+            raise ValueError(f"Unsupported ResNet norm_layer: {norm_layer}")
         self.backbone = backbone
 
         if not trainable:
@@ -352,6 +375,8 @@ class FluxTransferModel(nn.Module):
         image_encoder_type: str = "resnet18",
         image_resnet_variant: str = "resnet18",
         image_resnet_pretrained: bool = False,
+        image_norm_layer: str = "batchnorm",
+        image_groupnorm_num_groups: int = 32,
         image_branch_trainable: bool = True,
         image_branch_hidden_dims: Optional[List[int]] = None,
         image_embedding_dim: int = 128,
@@ -426,6 +451,8 @@ class FluxTransferModel(nn.Module):
                     out_dim=image_embedding_dim,
                     dropout=dropout,
                     trainable=image_branch_trainable,
+                    norm_layer=image_norm_layer,
+                    groupnorm_num_groups=image_groupnorm_num_groups,
                 )
                 image_out_dim = image_embedding_dim
             elif image_encoder_type == "light_cnn":
